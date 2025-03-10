@@ -1,17 +1,17 @@
 echo "Removing old module!"
-sudo rmmod (our driver.ko here)
+sudo rmmod Driver.ko
 
 echo "Building Driver now!"
 make ||{ echo "Build failed!"; exit 1; }
 
 echo "Inserting module!"
-sudo insmod "our driver.ko here"
+sudo insmod Driver.ko
 
 echo "Driver inserted!"
-sudo mknod /dev/(our device name here) c 240 0 //replace with major and minor!
+sudo mknod /dev/usb_keylogger c 240 0 //replace with major and minor!
 
 echo "Device node created!"
-sudo chmod 666 /dev/(our device name here)
+sudo chmod 666 /dev/usb_keylogger
 
 echo "Permissions set!"
 echo "Driver built and inserted!"
