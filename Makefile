@@ -9,4 +9,4 @@ all:
 	make -C $(Kernal_Dir) M=$(PWD) modules
 
 clean:
-	make-C $(Kernal_Dir) M=$(PWD) clean
+	make -C $(Kernal_Dir) M=$(PWD) clean
