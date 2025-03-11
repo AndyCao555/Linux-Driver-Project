@@ -4,7 +4,7 @@ Kernal_Dir := /lib/modules/$(shell uname -r)/build
 # Our present working directory (where Makefile is located)
 PMD := $(shell pwd)
 
-obj-m += Driver.o
+obj-m += usb_keylogger.o
 
 all:
 	make -C $(Kernal_Dir) M=$(PMD) modules
