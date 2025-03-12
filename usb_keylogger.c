@@ -27,10 +27,24 @@ static struct notifier_block nb = {
 
 // Character device functions
 static int device_open(struct inode *inode, struct file *file) {
+    // Check if the device is already open
+    if (data_available) {
+        printk(KERN_ERR "Device is already open\n");
+        return -EBUSY; // Device is busy
+    }
+
+    // make sure everything is 0 when we open 
+    buffer_pos = 0;
+    data_available = 0;
+    printk(KERN_INFO "Device opened\n");
     return 0;
 }
 
 static int device_close(struct inode *inode, struct file *file) {
+    // Clears the buffer
+    buffer_pos = 0;
+    data_available = 0;
+    printk(KERN_INFO "Device closed\n");
     return 0;
 }
 
