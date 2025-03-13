@@ -1,13 +1,7 @@
-# This is our variable (helps improve readability and we can change it if we decide to use a Raspberry Pi or a custom kernel)
-Kernal_Dir := /lib/modules/$(shell uname -r)/build
-
-# Our present working directory (where Makefile is located)
-PMD := $(shell pwd)
-
 obj-m += usb_keylogger.o
 
 all:
-	make -C $(Kernal_Dir) M=$(PMD) modules
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
 
 clean:
-	make -C $(Kernal_Dir) M=$(PMD) clean
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
